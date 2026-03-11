@@ -15,7 +15,7 @@
             width: 100%;
             margin: 20px 0;
         }
-        #status, #positionInfo, #waypointInfo {
+        #status, #positionInfo, #waypointInfo, #history {
             font-size: 1.1em;
             margin: 10px;
             padding: 10px;
@@ -25,6 +25,21 @@
         #waypointInfo {
             background-color: #e6f7ff;
         }
+        #history {
+            background-color: #fff8e6;
+            text-align: left;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .time-diff {
+            font-weight: bold;
+        }
+        .ahead {
+            color: green;
+        }
+        .behind {
+            color: red;
+        }
         button {
             padding: 10px 20px;
             margin: 5px;
@@ -33,6 +48,18 @@
         }
         #gpxFile {
             margin: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f2f2f2;
         }
     </style>
 </head>
@@ -56,6 +83,11 @@
 
     <div id="waypointInfo">Aucun waypoint chargé.</div>
 
+    <div id="history">
+        <h3>Historique des waypoints</h3>
+        <p>Aucun waypoint atteint pour l'instant.</p>
+    </div>
+
     <div id="map"></div>
 
     <script>
@@ -67,7 +99,7 @@
         let map;
         let userMarker;
         let waypointMarkers = [];
-        let lastUpdateTime = 0;
+        let waypointHistory = [];
 
         // Initialisation de la carte (Leaflet)
         function initMap() {
@@ -91,6 +123,8 @@
                     document.getElementById('startTraining').disabled = false;
                     displayWaypointInfo();
                     plotWaypointsOnMap();
+                    waypointHistory = [];
+                    updateHistoryDisplay();
                 } else {
                     document.getElementById('status').textContent = "Aucun waypoint valide trouvé dans le fichier GPX.";
                 }
@@ -143,6 +177,52 @@
             `;
         }
 
+        // Mettre à jour l'affichage de l'historique
+        function updateHistoryDisplay() {
+            const historyElement = document.getElementById('history');
+            if (waypointHistory.length === 0) {
+                historyElement.innerHTML = `
+                    <h3>Historique des waypoints</h3>
+                    <p>Aucun waypoint atteint pour l'instant.</p>
+                `;
+                return;
+            }
+
+            let tableRows = waypointHistory.map((entry, index) => {
+                const diffClass = entry.timeDiff >= 0 ? 'behind' : 'ahead';
+                const diffText = entry.timeDiff >= 0
+                    ? `+${entry.timeDiff.toFixed(1)}s`
+                    : `${entry.timeDiff.toFixed(1)}s`;
+                return `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${entry.name}</td>
+                        <td>${formatTime(entry.elapsedTime)}</td>
+                        <td>${formatTime(entry.timeOffset)}</td>
+                        <td class="time-diff ${diffClass}">${diffText}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            historyElement.innerHTML = `
+                <h3>Historique des waypoints</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Nom</th>
+                            <th>Temps réel</th>
+                            <th>Temps référence</th>
+                            <th>Écart</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRows}
+                    </tbody>
+                </table>
+            `;
+        }
+
         // Placer les waypoints sur la carte
         function plotWaypointsOnMap() {
             waypointMarkers.forEach(marker => map.removeLayer(marker));
@@ -153,7 +233,7 @@
                     title: wpt.name,
                     icon: L.divIcon({
                         className: 'waypoint-marker',
-                        html: `<div style="background-color: ${index === currentWaypointIndex ? 'red' : 'blue'}; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-weight: bold;">${index + 1}</div>`
+                        html: `<div style="background-color: ${index === currentWaypointIndex ? 'red' : (index < currentWaypointIndex ? 'gray' : 'blue')}; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-weight: bold;">${index + 1}</div>`
                     })
                 }).addTo(map);
                 waypointMarkers.push(marker);
@@ -176,9 +256,10 @@
             document.getElementById('startTraining').disabled = true;
             document.getElementById('stopTraining').disabled = false;
             document.getElementById('nextWaypoint').disabled = false;
+            waypointHistory = [];
+            updateHistoryDisplay();
 
             if (navigator.geolocation) {
-                // Mise à jour toutes les 3 secondes (géré par le navigateur)
                 watchId = navigator.geolocation.watchPosition(
                     updatePosition,
                     handleGeolocationError,
@@ -246,21 +327,27 @@
                 const waypoint = waypoints[currentWaypointIndex];
                 const distance = calculateDistance(latitude, longitude, waypoint.lat, waypoint.lon);
 
-                // Marge de tolérance : 20 mètres
-                if (distance <= 20) {
+                // Marge de tolérance : 15 mètres
+                if (distance <= 15) {
                     const currentTime = new Date().getTime();
                     const elapsedTime = (currentTime - startTime) / 1000; // en secondes
 
                     const timeDiff = (elapsedTime - waypoint.timeOffset).toFixed(1);
-                    const diffText = timeDiff > 0
-                        ? `+${timeDiff}s (retard)`
-                        : `${timeDiff}s (avance)`;
+
+                    // Enregistrer dans l'historique
+                    waypointHistory.push({
+                        name: waypoint.name,
+                        elapsedTime: elapsedTime,
+                        timeOffset: waypoint.timeOffset,
+                        timeDiff: parseFloat(timeDiff)
+                    });
+                    updateHistoryDisplay();
 
                     document.getElementById('status').innerHTML = `
                         <strong>Waypoint atteint : ${waypoint.name} !</strong><br>
                         Temps écoulé : ${formatTime(elapsedTime)}<br>
                         Temps de référence : ${formatTime(waypoint.timeOffset)}<br>
-                        Différence : ${diffText}
+                        Différence : <span class="time-diff ${timeDiff >= 0 ? 'behind' : 'ahead'}">${timeDiff >= 0 ? `+${timeDiff}s (retard)` : `${timeDiff}s (avance)`}</span>
                     `;
 
                     currentWaypointIndex++;
