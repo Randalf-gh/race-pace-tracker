@@ -23,12 +23,29 @@
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
         th { background-color: #f2f2f2; }
+
+        /* Animation pour faire disparaître le bouton */
+        .fade-out {
+            opacity: 1;
+            transition: opacity 0.5s ease-out;
+        }
+
+        .fade-out.hide {
+            opacity: 0;
+            pointer-events: none; /* Désactive les clics */
+            height: 0;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
     </style>
 </head>
 <body>
     <h1>Suivi d'entraînement de course</h1>
     <div>
-        <input type="file" id="gpxFile" accept=".gpx" />
+        <div id="gpxImportContainer">
+            <input type="file" id="gpxFile" accept=".gpx" />
+        </div>
         <button id="startTraining">Démarrer l'entraînement</button>
         <button id="stopTraining" disabled>Arrêter l'entraînement</button>
         <button id="nextWaypoint" disabled>Passer au waypoint suivant</button>
@@ -81,6 +98,14 @@
                     document.getElementById('status').textContent =
                         `Fichier GPX chargé : ${measuredWaypoints.length} waypoints à mesurer.`;
                     document.getElementById('startTraining').disabled = false;
+
+                    // Animation de disparition du bouton d'import
+                    const importContainer = document.getElementById('gpxImportContainer');
+                    importContainer.classList.add('fade-out');
+                    setTimeout(() => {
+                        importContainer.classList.add('hide');
+                    }, 500); // Correspond à la durée de l'animation (0.5s)
+
                     displayWaypointInfo();
                     plotTrackOnMap();
                     waypointHistory = [];
