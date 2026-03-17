@@ -5,43 +5,79 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Suivi d'entraînement de course</title>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; margin: 20px; }
-        #map { height: 300px; width: 100%; margin: 20px 0; }
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+        }
+        #map {
+            height: 300px;
+            width: 100%;
+            margin: 20px 0;
+        }
         #status, #positionInfo, #waypointInfo, #history {
-            font-size: 1.1em; margin: 10px; padding: 10px; border-radius: 5px;
+            font-size: 1.1em;
+            margin: 10px;
+            padding: 10px;
+            border-radius: 5px;
             background-color: #f0f0f0;
         }
-        #waypointInfo { background-color: #e6f7ff; }
+        #waypointInfo {
+            background-color: #e6f7ff;
+        }
         #history {
-            background-color: #fff8e6; text-align: left; max-height: 200px;
+            background-color: #fff8e6;
+            text-align: left;
+            max-height: 200px;
             overflow-y: auto;
         }
-        .time-diff { font-weight: bold; }
-        .ahead { color: green; }
-        .behind { color: red; }
-        button { padding: 10px 20px; margin: 5px; font-size: 1em; cursor: pointer; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background-color: #f2f2f2; }
-
-        /* Animation pour faire disparaître le bouton */
+        .time-diff {
+            font-weight: bold;
+        }
+        .ahead {
+            color: green;
+        }
+        .behind {
+            color: red;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 1em;
+            cursor: pointer;
+        }
+        #gpxImportContainer {
+            transition: all 0.5s ease-out;
+        }
         .fade-out {
             opacity: 1;
-            transition: opacity 0.5s ease-out;
+            transition: opacity 0.5s ease-out, height 0.5s ease-out, margin 0.5s ease-out, padding 0.5s ease-out;
         }
-
         .fade-out.hide {
             opacity: 0;
-            pointer-events: none; /* Désactive les clics */
+            pointer-events: none;
             height: 0;
             margin: 0;
             padding: 0;
             overflow: hidden;
         }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
     </style>
 </head>
 <body>
     <h1>Suivi d'entraînement de course</h1>
+
     <div>
         <div id="gpxImportContainer">
             <input type="file" id="gpxFile" accept=".gpx" />
@@ -50,17 +86,22 @@
         <button id="stopTraining" disabled>Arrêter l'entraînement</button>
         <button id="nextWaypoint" disabled>Passer au waypoint suivant</button>
     </div>
+
     <div id="status">Charge un fichier GPX pour commencer.</div>
+
     <div id="positionInfo">
         <strong>Position actuelle :</strong> Non disponible<br>
         <strong>Prochain waypoint :</strong> Aucun<br>
         <strong>Distance restante :</strong> - m
     </div>
+
     <div id="waypointInfo">Aucun waypoint chargé.</div>
+
     <div id="history">
         <h3>Historique des waypoints</h3>
         <p>Aucun waypoint atteint pour l'instant.</p>
     </div>
+
     <div id="map"></div>
 
     <script>
@@ -104,7 +145,7 @@
                     importContainer.classList.add('fade-out');
                     setTimeout(() => {
                         importContainer.classList.add('hide');
-                    }, 500); // Correspond à la durée de l'animation (0.5s)
+                    }, 500);
 
                     displayWaypointInfo();
                     plotTrackOnMap();
@@ -170,8 +211,7 @@
         // Afficher les infos du waypoint actuel
         function displayWaypointInfo() {
             if (currentWaypointIndex >= measuredWaypoints.length) {
-                document.getElementById('waypointInfo').textContent =
-                    "Tous les waypoints ont été atteints !";
+                document.getElementById('waypointInfo').textContent = "Tous les waypoints ont été atteints !";
                 return;
             }
             const waypoint = measuredWaypoints[currentWaypointIndex];
@@ -206,18 +246,30 @@
 
             // Placer les marqueurs des waypoints à mesurer
             measuredWaypoints.forEach((wpt, index) => {
+                let markerText, markerColor;
+                if (index === 0) {
+                    markerText = "D"; // Départ
+                    markerColor = "green";
+                } else if (index === measuredWaypoints.length - 1) {
+                    markerText = "A"; // Arrivée
+                    markerColor = "red";
+                } else {
+                    markerText = index; // Numérotation à partir de 1 (index 1 = "1", etc.)
+                    markerColor = index === currentWaypointIndex ? 'red' :
+                                 (index < currentWaypointIndex ? 'gray' : 'blue');
+                }
+
                 const marker = L.marker([wpt.lat, wpt.lon], {
                     title: wpt.name,
                     icon: L.divIcon({
                         className: 'waypoint-marker',
                         html: `
                             <div style="
-                                background-color: ${index === currentWaypointIndex ? 'red' :
-                                (index < currentWaypointIndex ? 'gray' : 'blue')};
+                                background-color: ${markerColor};
                                 color: white; border-radius: 50%; width: 24px; height: 24px;
                                 display: flex; align-items: center; justify-content: center;
                                 font-weight: bold;
-                            ">${index + 1}</div>
+                            ">${markerText}</div>
                         `
                     })
                 }).addTo(map);
@@ -313,7 +365,7 @@
                         isRaceStarted = true;
                         document.getElementById('status').textContent =
                             "Départ détecté ! Chronomètre démarré.";
-                    } else if (isRaceStarted) {
+                    } else if (isRaceStarted && currentWaypointIndex > 0) { // Ne pas ajouter le départ à l'historique
                         // Waypoint atteint (sauf le départ)
                         const currentTime = new Date().getTime();
                         const elapsedTime = (currentTime - startTime) / 1000;
@@ -358,7 +410,7 @@
             `;
         }
 
-        // Mettre à jour l'affichage de l'historique (ordre inverse)
+        // Mettre à jour l'affichage de l'historique (ordre inverse, sans le départ)
         function updateHistoryDisplay() {
             const historyElement = document.getElementById('history');
             if (waypointHistory.length === 0) {
@@ -368,14 +420,22 @@
                 `;
                 return;
             }
-            let tableRows = waypointHistory.map((entry, index) => {
+
+            // Filtrer pour exclure le point de départ (index 0)
+            const filteredHistory = waypointHistory.filter((_, index) =>
+                index < waypointHistory.length
+            );
+
+            let tableRows = filteredHistory.map((entry, index) => {
+                // Afficher les waypoints dans l'ordre inverse (1, 2, 3...)
+                const displayIndex = filteredHistory.length - index;
                 const diffClass = entry.timeDiff >= 0 ? 'behind' : 'ahead';
                 const diffText = entry.timeDiff >= 0
                     ? `+${entry.timeDiff.toFixed(1)}s`
                     : `${Math.abs(entry.timeDiff).toFixed(1)}s`;
                 return `
                     <tr>
-                        <td>${index + 1}</td>
+                        <td>${displayIndex}</td>
                         <td>${entry.name}</td>
                         <td>${formatTime(entry.elapsedTime)}</td>
                         <td>${formatTime(entry.timeOffset)}</td>
@@ -383,6 +443,7 @@
                     </tr>
                 `;
             }).join('');
+
             historyElement.innerHTML = `
                 <h3>Historique des waypoints</h3>
                 <table>
@@ -418,7 +479,7 @@
 
         // Calculer la distance 2D entre deux points GPS (en mètres)
         function calculateDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371e3; // Rayon terrestre moyen
+            const R = 6371e3; // Rayon terrestre en mètres
             const φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180;
             const Δφ = (lat2 - lat1) * Math.PI / 180, Δλ = (lon2 - lon1) * Math.PI / 180;
             const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
