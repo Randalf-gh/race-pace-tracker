@@ -170,13 +170,15 @@ tr:hover {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
-/* Conteneur de la carte - CORRIGÉ */
+/* Conteneur de la carte - CORRIGÉ POUR EDGE */
 #map {
-    height: 300px;
-    width: 100%;
-    margin: 20px 0;
+    height: 300px !important; /* Force la hauteur */
+    width: 100% !important;  /* Force la largeur */
+    min-height: 300px;       /* Hauteur minimale */
+    margin: 20px 0 !important;
     border-radius: var(--border-radius);
     box-shadow: var(--box-shadow);
+    display: block;          /* Assure que le conteneur est visible */
 }
 
 /* Responsive */
@@ -190,6 +192,7 @@ tr:hover {
     }
 
     #map {
-        height: 250px;
+        height: 250px !important;
+        min-height: 250px;
     }
 }
