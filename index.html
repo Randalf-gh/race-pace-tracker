@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Suivi d'entraînement de course</title>
     <link rel="stylesheet" href="styles.css">
+    <!-- Intégration de Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
 </head>
 <body>
     <h1>Suivi d'entraînement de course</h1>
@@ -34,6 +36,7 @@
         <p>Aucun waypoint atteint pour l'instant.</p>
     </div>
 
+    <!-- Conteneur de la carte -->
     <div id="map"></div>
 
     <script>
@@ -406,7 +409,6 @@
             initMap();
         };
     </script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
 </body>
 </html>
