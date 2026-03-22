@@ -7,6 +7,17 @@
     <link rel="stylesheet" href="styles.css">
     <!-- Intégration de Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        .time-diff.behind { color: red; }
+        .time-diff.ahead { color: green; }
+        .fade-out { opacity: 0; transition: opacity 0.5s; }
+        .hide { display: none; }
+        #map { height: 500px; width: 100%; }
+        .btn { padding: 8px 16px; margin: 4px; cursor: pointer; }
+        .btn-primary { background-color: #007bff; color: white; }
+        .btn-secondary { background-color: #6c757d; color: white; }
+        .btn-danger { background-color: #dc3545; color: white; }
+    </style>
 </head>
 <body>
     <h1>Suivi d'entraînement de course</h1>
@@ -49,6 +60,7 @@
         let map, userMarker, trackLine, waypointMarkers = [];
         let waypointHistory = [];
         let isRaceStarted = false;
+        let isTrainingStarted = false;
 
         // Initialisation de la carte (Leaflet)
         function initMap() {
@@ -206,14 +218,14 @@
             });
         }
 
-        // Gérer le bouton unique Démarrer/Arrêter
+        // Gérer le bouton Démarrer/Arrêter l'entraînement
         document.getElementById('toggleTraining').addEventListener('click', function() {
             if (measuredWaypoints.length === 0) {
                 alert("Aucun waypoint avec timeOffset chargé !");
                 return;
             }
 
-            if (!isRaceStarted) {
+            if (!isTrainingStarted) {
                 // Démarrer l'entraînement
                 document.getElementById('status').textContent = "En attente du départ (approchez-vous du premier waypoint)...";
                 this.textContent = "Arrêter l'entraînement";
@@ -222,7 +234,10 @@
                 document.getElementById('nextWaypoint').disabled = false;
                 waypointHistory = [];
                 updateHistoryDisplay();
-                isRaceStarted = true;
+                isTrainingStarted = true;
+                startTime = null;
+                currentWaypointIndex = 0;
+                displayWaypointInfo();
 
                 if (navigator.geolocation) {
                     watchId = navigator.geolocation.watchPosition(
@@ -241,6 +256,7 @@
                 this.classList.remove('btn-danger');
                 this.classList.add('btn-primary');
                 document.getElementById('nextWaypoint').disabled = true;
+                isTrainingStarted = false;
                 isRaceStarted = false;
             }
         });
@@ -279,16 +295,17 @@
                 userMarker.setLatLng([latitude, longitude]);
             }
 
-            if (currentWaypointIndex < measuredWaypoints.length) {
+            if (currentWaypointIndex < measuredWaypoints.length && isTrainingStarted) {
                 const waypoint = measuredWaypoints[currentWaypointIndex];
                 const distance = calculateDistance(latitude, longitude, waypoint.lat, waypoint.lon);
 
-                if (distance <= 15) {
-                    if (!isRaceStarted && currentWaypointIndex === 0) {
+                if (distance <= (accuracy * 2)) {
+                    if (currentWaypointIndex === 0 && !isRaceStarted) {
+                        // Waypoint Départ : remise à zéro du chronomètre
                         startTime = new Date().getTime();
                         isRaceStarted = true;
                         document.getElementById('status').textContent = "Départ détecté ! Chronomètre démarré.";
-                    } else if (isRaceStarted && currentWaypointIndex > 0) {
+                    } else if (isRaceStarted) {
                         const currentTime = new Date().getTime();
                         const elapsedTime = (currentTime - startTime) / 1000;
                         const timeDiff = (elapsedTime - waypoint.timeOffset).toFixed(1);
