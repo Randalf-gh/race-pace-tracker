@@ -110,41 +110,32 @@
         function parseGPX(gpxData) {
             const parser = new DOMParser();
             const xmlDoc = parser.parseFromString(gpxData, "text/xml");
-            const wpts = xmlDoc.getElementsByTagName("wpt");
+            const trkpts = xmlDoc.getElementsByTagName("trkpt");
             const allWaypoints = [];
             const measuredWaypoints = [];
-
-            for (let i = 0; i < wpts.length; i++) {
-                const wpt = wpts[i];
-                const lat = parseFloat(wpt.getAttribute("lat"));
-                const lon = parseFloat(wpt.getAttribute("lon"));
-                const name = wpt.getElementsByTagName("name")[0]?.textContent || `Point ${i+1}`;
-
+        
+            for (let i = 0; i < trkpts.length; i++) {
+                const trkpt = trkpts[i];
+                const lat = parseFloat(trkpt.getAttribute("lat"));
+                const lon = parseFloat(trkpt.getAttribute("lon"));
+                const nameElement = trkpt.getElementsByTagName("name")[0];
+                const name = nameElement?.textContent || `Point ${i+1}`;
+        
                 if (isNaN(lat) || isNaN(lon)) continue;
-
+        
                 allWaypoints.push({ lat, lon, name });
-
-                let timeOffset = 0;
-                const extensions = wpt.getElementsByTagName("extensions")[0];
-                if (extensions) {
-                    const timeOffsetElement = extensions.getElementsByTagName("timeOffset")[0];
-                    if (timeOffsetElement) {
-                        timeOffset = parseTimeOffset(timeOffsetElement.textContent);
+        
+                // Si la balise <name> contient directement le temps en secondes
+                if (nameElement) {
+                    const timeOffset = parseFloat(nameElement.textContent);
+                    if (!isNaN(timeOffset)) {
                         measuredWaypoints.push({ lat, lon, name, timeOffset });
                     }
                 }
             }
             return { allWaypoints, measuredWaypoints };
         }
-
-        // Convertir "hh:mm:ss" en secondes
-        function parseTimeOffset(timeStr) {
-            const parts = timeStr.split(':').map(Number);
-            if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-            if (parts.length === 2) return parts[0] * 60 + parts[1];
-            return parseInt(timeStr) || 0;
-        }
-
+        
         // Formater les secondes en "hh:mm:ss"
         function formatTime(seconds) {
             const hrs = Math.floor(seconds / 3600);
