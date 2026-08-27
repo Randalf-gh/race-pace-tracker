@@ -58,9 +58,11 @@
         let currentWaypointIndex = 0;
         let startTime = null;
         let map, userMarker, trackLine, waypointMarkers = [];
+        let detectionCircle = null;
         let waypointHistory = [];
         let isRaceStarted = false;
         let isTrainingStarted = false;
+        let currentDetectionRadius = 0; // Stocke le rayon actuel pour l'affichage
 
         // Initialisation de la carte (Leaflet)
         function initMap() {
@@ -68,6 +70,29 @@
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OpenStreetMap'
             }).addTo(map);
+        }
+
+        // Fonction pour afficher/mettre à jour le cercle de détection
+        // Prend le rayon en mètres comme argument
+        function updateDetectionCircle(radius) {
+            // Supprimer l'ancien cercle s'il existe
+            if (detectionCircle) {
+                map.removeLayer(detectionCircle);
+                detectionCircle = null;
+            }
+
+            // Si nous avons un waypoint cible valide et un rayon positif
+            if (currentWaypointIndex < measuredWaypoints.length && radius > 0) {
+                const waypoint = measuredWaypoints[currentWaypointIndex];
+                
+                // Créer un nouveau cercle autour du waypoint
+                detectionCircle = L.circle([waypoint.lat, waypoint.lon], {
+                    color: 'red',
+                    fillColor: '#f03',
+                    fillOpacity: 0.2,
+                    radius: radius
+                }).addTo(map);
+            }
         }
 
         // Charger le fichier GPX
@@ -87,7 +112,6 @@
                         `Fichier GPX chargé : ${measuredWaypoints.length} waypoints à mesurer.`;
                     document.getElementById('toggleTraining').disabled = false;
 
-                    // Animation de disparition du bouton d'import
                     const importContainer = document.getElementById('gpxImportContainer');
                     importContainer.classList.add('fade-out');
                     setTimeout(() => {
@@ -106,7 +130,6 @@
             reader.readAsText(file);
         });
 
-        // Parser le fichier GPX
         function parseGPX(gpxData) {
             const parser = new DOMParser();
             const xmlDoc = parser.parseFromString(gpxData, "text/xml");
@@ -125,7 +148,6 @@
         
                 allWaypoints.push({ lat, lon, name });
         
-                // Si la balise <name> contient directement le temps en secondes
                 if (nameElement) {
                     const timeOffset = parseFloat(nameElement.textContent);
                     if (!isNaN(timeOffset)) {
@@ -136,7 +158,6 @@
             return { allWaypoints, measuredWaypoints };
         }
         
-        // Formater les secondes en "hh:mm:ss"
         function formatTime(seconds) {
             const hrs = Math.floor(seconds / 3600);
             const mins = Math.floor((seconds % 3600) / 60);
@@ -144,21 +165,31 @@
             return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         }
 
-        // Afficher les infos du waypoint actuel
         function displayWaypointInfo() {
             if (currentWaypointIndex >= measuredWaypoints.length) {
                 document.getElementById('waypointInfo').textContent = "Tous les waypoints ont été atteints !";
                 return;
             }
             const waypoint = measuredWaypoints[currentWaypointIndex];
+            
+            // Affichage dynamique du rayon actuel
+            const radiusText = currentDetectionRadius > 0 
+                ? `${currentDetectionRadius.toFixed(1)} m (2x précision GPS)` 
+                : "En attente du signal GPS...";
+
             document.getElementById('waypointInfo').innerHTML = `
                 <strong>Waypoint actuel :</strong> ${waypoint.name}<br>
                 <strong>Position :</strong> ${waypoint.lat.toFixed(6)}, ${waypoint.lon.toFixed(6)}<br>
-                <strong>Temps de référence :</strong> ${formatTime(waypoint.timeOffset)}
+                <strong>Temps de référence :</strong> ${formatTime(waypoint.timeOffset)}<br>
+                <strong>Rayon de détection :</strong> ${radiusText}
             `;
+            
+            // Mettre à jour le cercle avec le rayon actuel connu
+            if (currentDetectionRadius > 0) {
+                updateDetectionCircle(currentDetectionRadius);
+            }
         }
 
-        // Tracer le tracé et les waypoints sur la carte
         function plotTrackOnMap() {
             if (trackLine) map.removeLayer(trackLine);
             waypointMarkers.forEach(marker => map.removeLayer(marker));
@@ -209,7 +240,6 @@
             });
         }
 
-        // Gérer le bouton Démarrer/Arrêter l'entraînement
         document.getElementById('toggleTraining').addEventListener('click', function() {
             if (measuredWaypoints.length === 0) {
                 alert("Aucun waypoint avec timeOffset chargé !");
@@ -217,7 +247,6 @@
             }
 
             if (!isTrainingStarted) {
-                // Démarrer l'entraînement
                 document.getElementById('status').textContent = "En attente du départ (approchez-vous du premier waypoint)...";
                 this.textContent = "Arrêter l'entraînement";
                 this.classList.remove('btn-primary');
@@ -228,6 +257,7 @@
                 isTrainingStarted = true;
                 startTime = null;
                 currentWaypointIndex = 0;
+                currentDetectionRadius = 0; // Reset du rayon
                 displayWaypointInfo();
 
                 if (navigator.geolocation) {
@@ -240,7 +270,6 @@
                     document.getElementById('status').textContent = "La géolocalisation n'est pas supportée par ce navigateur.";
                 }
             } else {
-                // Arrêter l'entraînement
                 if (watchId) navigator.geolocation.clearWatch(watchId);
                 document.getElementById('status').textContent = "Entraînement arrêté.";
                 this.textContent = "Démarrer l'entraînement";
@@ -249,10 +278,14 @@
                 document.getElementById('nextWaypoint').disabled = true;
                 isTrainingStarted = false;
                 isRaceStarted = false;
+                
+                if (detectionCircle) {
+                    map.removeLayer(detectionCircle);
+                    detectionCircle = null;
+                }
             }
         });
 
-        // Passer au waypoint suivant manuellement
         document.getElementById('nextWaypoint').addEventListener('click', function() {
             if (currentWaypointIndex < measuredWaypoints.length - 1) {
                 currentWaypointIndex++;
@@ -261,19 +294,38 @@
                     `Waypoint ${currentWaypointIndex + 1} sélectionné manuellement.`;
             } else {
                 document.getElementById('status').textContent = "Tous les waypoints ont été atteints !";
+                if (detectionCircle) {
+                    map.removeLayer(detectionCircle);
+                    detectionCircle = null;
+                }
             }
         });
 
-        // Mettre à jour la position
         function updatePosition(position) {
             const { latitude, longitude, accuracy } = position.coords;
             const userPos = { lat: latitude, lon: longitude };
 
+            // Calcul du rayon dynamique : double de la précision GPS
+            // On impose un minimum de 10m et un maximum de 200m pour éviter les comportements extrêmes
+            const dynamicRadius = Math.max(10, Math.min(200, accuracy * 2));
+            currentDetectionRadius = dynamicRadius;
+
             document.getElementById('positionInfo').innerHTML = `
                 <strong>Position actuelle :</strong> ${latitude.toFixed(6)}, ${longitude.toFixed(6)}<br>
-                <strong>Précision :</strong> ±${accuracy.toFixed(0)} m<br>
+                <strong>Précision GPS :</strong> ±${accuracy.toFixed(1)} m<br>
+                <strong>Rayon de détection :</strong> ${dynamicRadius.toFixed(1)} m<br>
                 ${getWaypointDistanceInfo(userPos)}
             `;
+
+            // Mise à jour de l'info-bulle du waypoint avec le nouveau rayon
+            if (isTrainingStarted) {
+                displayWaypointInfo();
+            }
+
+            // Mise à jour du cercle sur la carte
+            if (isTrainingStarted && currentWaypointIndex < measuredWaypoints.length) {
+                updateDetectionCircle(dynamicRadius);
+            }
 
             if (!userMarker) {
                 userMarker = L.marker([latitude, longitude], {
@@ -290,9 +342,9 @@
                 const waypoint = measuredWaypoints[currentWaypointIndex];
                 const distance = calculateDistance(latitude, longitude, waypoint.lat, waypoint.lon);
 
-                if (distance <= (accuracy * 2)) {
+                // Détection basée sur le rayon dynamique
+                if (distance <= dynamicRadius) {
                     if (currentWaypointIndex === 0 && !isRaceStarted) {
-                        // Waypoint Départ : remise à zéro du chronomètre
                         startTime = new Date().getTime();
                         isRaceStarted = true;
                         document.getElementById('status').textContent = "Départ détecté ! Chronomètre démarré.";
@@ -325,7 +377,6 @@
             map.setView([latitude, longitude], 17);
         }
 
-        // Retourne les infos sur le prochain waypoint et la distance
         function getWaypointDistanceInfo(userPos) {
             if (currentWaypointIndex >= measuredWaypoints.length) {
                 return `<strong>Prochain waypoint :</strong> Aucun<br><strong>Distance restante :</strong> - m`;
@@ -338,7 +389,6 @@
             `;
         }
 
-        // Mettre à jour l'affichage de l'historique
         function updateHistoryDisplay() {
             const historyElement = document.getElementById('history');
             if (waypointHistory.length === 0) {
@@ -387,7 +437,6 @@
             `;
         }
 
-        // Gérer les erreurs de géolocalisation
         function handleGeolocationError(error) {
             let message;
             switch(error.code) {
@@ -403,7 +452,6 @@
             `;
         }
 
-        // Calculer la distance 2D entre deux points GPS
         function calculateDistance(lat1, lon1, lat2, lon2) {
             const R = 6371e3;
             const φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180;
@@ -412,7 +460,6 @@
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         }
 
-        // Initialisation
         window.onload = function() {
             initMap();
         };
