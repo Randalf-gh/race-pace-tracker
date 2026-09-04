@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Tests Unitaires - Race Pace Tracker</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #f4f4f4; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        h1 { border-bottom: 2px solid #333; padding-bottom: 10px; }
+        .test-block { margin-bottom: 20px; border: 1px solid #ddd; padding: 10px; border-radius: 4px; }
+        .test-block h3 { margin-top: 0; color: #555; }
+        .pass { color: green; font-weight: bold; }
+        .fail { color: red; font-weight: bold; }
+        .result { margin-left: 20px; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; font-size: 16px; border-radius: 4px; }
+        button:hover { background: #0056b3; }
+        #summary { margin-top: 20px; font-weight: bold; font-size: 1.2em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Tests Unitaires : app.js</h1>
+        <p>Ce fichier teste les fonctions pures de logique métier (calculs de distance, formatage, parsing) sans dépendre de la carte ou du GPS.</p>
+        
+        <button onclick="runTests()">Lancer les tests</button>
+        
+        <div id="summary"></div>
+        <div id="output"></div>
+    </div>
+
+    <!-- Chargement du fichier à tester -->
+    <script src="app.js"></script>
+
+    <script>
+        // Mini framework de test
+        let passed = 0;
+        let failed = 0;
+
+        function assert(condition, message) {
+            const div = document.createElement('div');
+            if (condition) {
+                div.innerHTML = `<span class="pass">✓ PASS</span> : ${message}`;
+                passed++;
+            } else {
+                div.innerHTML = `<span class="fail">✗ FAIL</span> : ${message}`;
+                failed++;
+            }
+            document.getElementById('output').appendChild(div);
+        }
+
+        function assertApprox(actual, expected, tolerance, message) {
+            const diff = Math.abs(actual - expected);
+            const success = diff <= tolerance;
+            const div = document.createElement('div');
+            if (success) {
+                div.innerHTML = `<span class="pass">✓ PASS</span> : ${message} (Attendu: ${expected}, Obtenu: ${actual.toFixed(2)})`;
+                passed++;
+            } else {
+                div.innerHTML = `<span class="fail">✗ FAIL</span> : ${message} (Attendu: ${expected}, Obtenu: ${actual.toFixed(2)}, Écart: ${diff.toFixed(2)})`;
+                failed++;
+            }
+            document.getElementById('output').appendChild(div);
+        }
+
+        function runTests() {
+            document.getElementById('output').innerHTML = '';
+            passed = 0;
+            failed = 0;
+
+            // --- Tests calculateDistance ---
+            const blockDist = document.createElement('div');
+            blockDist.className = 'test-block';
+            blockDist.innerHTML = '<h3>1. Fonction calculateDistance (Haversine)</h3>';
+            document.getElementById('output').appendChild(blockDist);
+
+            // Test 1: Distance nulle
+            let d1 = calculateDistance(46.5, 6.6, 46.5, 6.6);
+            assert(d1 === 0, "Distance nulle entre deux points identiques");
+
+            // Test 2: Distance connue (environ 1km vers le Nord)
+            // 1 degré de latitude ≈ 111km. 0.009 degrés ≈ 1km.
+            let d2 = calculateDistance(46.5, 6.6, 46.509, 6.6);
+            assertApprox(d2, 1000, 50, "Distance ~1km vers le Nord");
+
+            // Test 3: Distance connue (environ 1km vers l'Est à cette latitude)
+            // A 46.5°N, 1 degré longitude ≈ 77km. 0.013 degrés ≈ 1km.
+            let d3 = calculateDistance(46.5, 6.6, 46.5, 6.613);
+            assertApprox(d3, 1000, 50, "Distance ~1km vers l'Est");
+
+            // --- Tests formatTime ---
+            const blockTime = document.createElement('div');
+            blockTime.className = 'test-block';
+            blockTime.innerHTML = '<h3>2. Fonction formatTime</h3>';
+            document.getElementById('output').appendChild(blockTime);
+
+            assert(formatTime(0) === "00:00:00", "0 secondes");
+            assert(formatTime(65) === "00:01:05", "65 secondes (00:01:05)");
+            assert(formatTime(3661) === "01:01:01", "3661 secondes (01:01:01)");
+            assert(formatTime(125) === "00:02:05", "125 secondes (00:02:05)");
+
+            // --- Tests parseGPX ---
+            const blockParse = document.createElement('div');
+            blockParse.className = 'test-block';
+            blockParse.innerHTML = '<h3>3. Fonction parseGPX</h3>';
+            document.getElementById('output').appendChild(blockParse);
+
+            const gpxValid = `<?xml version="1.0"?>
+                <gpx><trk><trkseg>
+                    <trkpt lat="46.5" lon="6.6"><name>100</name></trkpt>
+                    <trkpt lat="46.51" lon="6.61"><name>200</name></trkpt>
+                    <trkpt lat="46.52" lon="6.62"><name>Point Sans Temps</name></trkpt>
+                </trkseg></trk></gpx>`;
+            
+            const result = parseGPX(gpxValid);
+            
+            assert(result.allWaypoints.length === 3, "Total des waypoints (3)");
+            assert(result.measuredWaypoints.length === 2, "Waypoints mesurés (2, car le 3ème n'a pas de temps numérique)");
+            assert(result.measuredWaypoints[0].timeOffset === 100, "Premier temps offset (100)");
+            assert(result.measuredWaypoints[1].timeOffset === 200, "Deuxième temps offset (200)");
+            assert(result.measuredWaypoints[0].lat === 46.5, "Latitude du premier point");
+
+            // Test GPX vide ou invalide
+            const resultEmpty = parseGPX("<gpx></gpx>");
+            assert(resultEmpty.measuredWaypoints.length === 0, "GPX vide retourne tableau vide");
+
+            // Résumé
+            const summary = document.getElementById('summary');
+            summary.innerHTML = `Résultats : <span class="pass">${passed} réussis</span>, <span class="fail">${failed} échecs</span>`;
+            
+            if (failed === 0) {
+                summary.innerHTML += " <br>🎉 Tous les tests sont passés avec succès !";
+            }
+        }
+    </script>
+</body>
+</html>
