@@ -4,19 +4,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Suivi d'entraînement de course</title>
-    <link rel="stylesheet" href="styles.css">
     <!-- Intégration de Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
     <style>
-        .time-diff.behind { color: red; }
-        .time-diff.ahead { color: green; }
+        body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .time-diff.behind { color: red; font-weight: bold; }
+        .time-diff.ahead { color: green; font-weight: bold; }
         .fade-out { opacity: 0; transition: opacity 0.5s; }
         .hide { display: none; }
-        #map { height: 500px; width: 100%; }
-        .btn { padding: 8px 16px; margin: 4px; cursor: pointer; }
+        #map { height: 500px; width: 100%; border: 1px solid #ccc; margin-top: 20px; }
+        .controls-container { margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; }
+        .btn { padding: 10px 20px; margin: 5px; cursor: pointer; border: none; border-radius: 4px; font-size: 14px; }
         .btn-primary { background-color: #007bff; color: white; }
         .btn-secondary { background-color: #6c757d; color: white; }
         .btn-danger { background-color: #dc3545; color: white; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        #status { padding: 10px; background: #e9ecef; border-left: 5px solid #007bff; margin-bottom: 15px; }
+        #positionInfo, #waypointInfo { padding: 10px; border: 1px solid #ddd; margin-bottom: 10px; border-radius: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
     </style>
 </head>
 <body>
@@ -24,20 +31,23 @@
 
     <div class="controls-container">
         <div id="gpxImportContainer">
+            <label for="gpxFile"><strong>1. Charger un fichier GPX :</strong></label><br>
             <input type="file" id="gpxFile" accept=".gpx" />
         </div>
-        <div class="button-group">
+        <div class="button-group" style="margin-top: 15px;">
             <button id="toggleTraining" class="btn btn-primary" disabled>Démarrer l'entraînement</button>
             <button id="nextWaypoint" class="btn btn-secondary" disabled>Passer au waypoint suivant</button>
         </div>
     </div>
 
-    <div id="status">Charge un fichier GPX pour commencer.</div>
+    <div id="status">Chargez un fichier GPX pour commencer.</div>
 
     <div id="positionInfo">
         <strong>Position actuelle :</strong> Non disponible<br>
-        <strong>Prochain waypoint :</strong> Aucun<br>
-        <strong>Distance restante :</strong> - m
+        <strong>Précision GPS :</strong> -<br>
+        <strong>Rayon de détection :</strong> -<br>
+        <strong>Prochain waypoint :</strong> -<br>
+        <strong>Distance restante :</strong> -
     </div>
 
     <div id="waypointInfo">Aucun waypoint chargé.</div>
@@ -50,420 +60,8 @@
     <!-- Conteneur de la carte -->
     <div id="map"></div>
 
-    <script>
-        // Variables globales
-        let watchId;
-        let allWaypoints = [];
-        let measuredWaypoints = [];
-        let currentWaypointIndex = 0;
-        let startTime = null;
-        let map, userMarker, trackLine, waypointMarkers = [];
-        let detectionCircle = null;
-        let waypointHistory = [];
-        let isRaceStarted = false;
-        let isTrainingStarted = false;
-        let currentDetectionRadius = 0; // Stocke le rayon actuel pour l'affichage
-
-        // Initialisation de la carte (Leaflet)
-        function initMap() {
-            map = L.map('map').setView([46.5, 6.6], 13);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap'
-            }).addTo(map);
-        }
-
-        // Fonction pour afficher/mettre à jour le cercle de détection
-        // Prend le rayon en mètres comme argument
-        function updateDetectionCircle(radius) {
-            // Supprimer l'ancien cercle s'il existe
-            if (detectionCircle) {
-                map.removeLayer(detectionCircle);
-                detectionCircle = null;
-            }
-
-            // Si nous avons un waypoint cible valide et un rayon positif
-            if (currentWaypointIndex < measuredWaypoints.length && radius > 0) {
-                const waypoint = measuredWaypoints[currentWaypointIndex];
-                
-                // Créer un nouveau cercle autour du waypoint
-                detectionCircle = L.circle([waypoint.lat, waypoint.lon], {
-                    color: 'red',
-                    fillColor: '#f03',
-                    fillOpacity: 0.2,
-                    radius: radius
-                }).addTo(map);
-            }
-        }
-
-        // Charger le fichier GPX
-        document.getElementById('gpxFile').addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const gpxData = e.target.result;
-                const parsed = parseGPX(gpxData);
-                allWaypoints = parsed.allWaypoints;
-                measuredWaypoints = parsed.measuredWaypoints;
-
-                if (measuredWaypoints.length > 0) {
-                    document.getElementById('status').textContent =
-                        `Fichier GPX chargé : ${measuredWaypoints.length} waypoints à mesurer.`;
-                    document.getElementById('toggleTraining').disabled = false;
-
-                    const importContainer = document.getElementById('gpxImportContainer');
-                    importContainer.classList.add('fade-out');
-                    setTimeout(() => {
-                        importContainer.classList.add('hide');
-                    }, 500);
-
-                    displayWaypointInfo();
-                    plotTrackOnMap();
-                    waypointHistory = [];
-                    updateHistoryDisplay();
-                } else {
-                    document.getElementById('status').textContent =
-                        "Aucun waypoint avec timeOffset trouvé dans le fichier GPX.";
-                }
-            };
-            reader.readAsText(file);
-        });
-
-        function parseGPX(gpxData) {
-            const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(gpxData, "text/xml");
-            const trkpts = xmlDoc.getElementsByTagName("trkpt");
-            const allWaypoints = [];
-            const measuredWaypoints = [];
-        
-            for (let i = 0; i < trkpts.length; i++) {
-                const trkpt = trkpts[i];
-                const lat = parseFloat(trkpt.getAttribute("lat"));
-                const lon = parseFloat(trkpt.getAttribute("lon"));
-                const nameElement = trkpt.getElementsByTagName("name")[0];
-                const name = nameElement?.textContent || `Point ${i+1}`;
-        
-                if (isNaN(lat) || isNaN(lon)) continue;
-        
-                allWaypoints.push({ lat, lon, name });
-        
-                if (nameElement) {
-                    const timeOffset = parseFloat(nameElement.textContent);
-                    if (!isNaN(timeOffset)) {
-                        measuredWaypoints.push({ lat, lon, name, timeOffset });
-                    }
-                }
-            }
-            return { allWaypoints, measuredWaypoints };
-        }
-        
-        function formatTime(seconds) {
-            const hrs = Math.floor(seconds / 3600);
-            const mins = Math.floor((seconds % 3600) / 60);
-            const secs = Math.floor(seconds % 60);
-            return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-        }
-
-        function displayWaypointInfo() {
-            if (currentWaypointIndex >= measuredWaypoints.length) {
-                document.getElementById('waypointInfo').textContent = "Tous les waypoints ont été atteints !";
-                return;
-            }
-            const waypoint = measuredWaypoints[currentWaypointIndex];
-            
-            // Affichage dynamique du rayon actuel
-            const radiusText = currentDetectionRadius > 0 
-                ? `${currentDetectionRadius.toFixed(1)} m (2x précision GPS)` 
-                : "En attente du signal GPS...";
-
-            document.getElementById('waypointInfo').innerHTML = `
-                <strong>Waypoint actuel :</strong> ${waypoint.name}<br>
-                <strong>Position :</strong> ${waypoint.lat.toFixed(6)}, ${waypoint.lon.toFixed(6)}<br>
-                <strong>Temps de référence :</strong> ${formatTime(waypoint.timeOffset)}<br>
-                <strong>Rayon de détection :</strong> ${radiusText}
-            `;
-            
-            // Mettre à jour le cercle avec le rayon actuel connu
-            if (currentDetectionRadius > 0) {
-                updateDetectionCircle(currentDetectionRadius);
-            }
-        }
-
-        function plotTrackOnMap() {
-            if (trackLine) map.removeLayer(trackLine);
-            waypointMarkers.forEach(marker => map.removeLayer(marker));
-            waypointMarkers = [];
-
-            const trackCoordinates = allWaypoints.map(wpt => [wpt.lat, wpt.lon]);
-
-            if (trackCoordinates.length > 1) {
-                trackLine = L.polyline(trackCoordinates, {
-                    color: 'blue',
-                    weight: 3,
-                    opacity: 0.7
-                }).addTo(map);
-                map.fitBounds(trackLine.getBounds());
-            } else if (trackCoordinates.length === 1) {
-                map.setView(trackCoordinates[0], 15);
-            }
-
-            measuredWaypoints.forEach((wpt, index) => {
-                let markerText, markerColor;
-                if (index === 0) {
-                    markerText = "D";
-                    markerColor = "green";
-                } else if (index === measuredWaypoints.length - 1) {
-                    markerText = "A";
-                    markerColor = "red";
-                } else {
-                    markerText = index;
-                    markerColor = index === currentWaypointIndex ? 'red' :
-                                 (index < currentWaypointIndex ? 'gray' : 'blue');
-                }
-
-                const marker = L.marker([wpt.lat, wpt.lon], {
-                    title: wpt.name,
-                    icon: L.divIcon({
-                        className: 'waypoint-marker',
-                        html: `
-                            <div style="
-                                background-color: ${markerColor};
-                                color: white; border-radius: 50%; width: 24px; height: 24px;
-                                display: flex; align-items: center; justify-content: center;
-                                font-weight: bold;
-                            ">${markerText}</div>
-                        `
-                    })
-                }).addTo(map);
-                waypointMarkers.push(marker);
-            });
-        }
-
-        document.getElementById('toggleTraining').addEventListener('click', function() {
-            if (measuredWaypoints.length === 0) {
-                alert("Aucun waypoint avec timeOffset chargé !");
-                return;
-            }
-
-            if (!isTrainingStarted) {
-                document.getElementById('status').textContent = "En attente du départ (approchez-vous du premier waypoint)...";
-                this.textContent = "Arrêter l'entraînement";
-                this.classList.remove('btn-primary');
-                this.classList.add('btn-danger');
-                document.getElementById('nextWaypoint').disabled = false;
-                waypointHistory = [];
-                updateHistoryDisplay();
-                isTrainingStarted = true;
-                startTime = null;
-                currentWaypointIndex = 0;
-                currentDetectionRadius = 0; // Reset du rayon
-                displayWaypointInfo();
-
-                if (navigator.geolocation) {
-                    watchId = navigator.geolocation.watchPosition(
-                        updatePosition,
-                        handleGeolocationError,
-                        { enableHighAccuracy: true, maximumAge: 0, timeout: 3000 }
-                    );
-                } else {
-                    document.getElementById('status').textContent = "La géolocalisation n'est pas supportée par ce navigateur.";
-                }
-            } else {
-                if (watchId) navigator.geolocation.clearWatch(watchId);
-                document.getElementById('status').textContent = "Entraînement arrêté.";
-                this.textContent = "Démarrer l'entraînement";
-                this.classList.remove('btn-danger');
-                this.classList.add('btn-primary');
-                document.getElementById('nextWaypoint').disabled = true;
-                isTrainingStarted = false;
-                isRaceStarted = false;
-                
-                if (detectionCircle) {
-                    map.removeLayer(detectionCircle);
-                    detectionCircle = null;
-                }
-            }
-        });
-
-        document.getElementById('nextWaypoint').addEventListener('click', function() {
-            if (currentWaypointIndex < measuredWaypoints.length - 1) {
-                currentWaypointIndex++;
-                displayWaypointInfo();
-                document.getElementById('status').textContent =
-                    `Waypoint ${currentWaypointIndex + 1} sélectionné manuellement.`;
-            } else {
-                document.getElementById('status').textContent = "Tous les waypoints ont été atteints !";
-                if (detectionCircle) {
-                    map.removeLayer(detectionCircle);
-                    detectionCircle = null;
-                }
-            }
-        });
-
-        function updatePosition(position) {
-            const { latitude, longitude, accuracy } = position.coords;
-            const userPos = { lat: latitude, lon: longitude };
-
-            // Calcul du rayon dynamique : double de la précision GPS
-            // On impose un minimum de 10m et un maximum de 200m pour éviter les comportements extrêmes
-            const dynamicRadius = Math.max(10, Math.min(200, accuracy * 2));
-            currentDetectionRadius = dynamicRadius;
-
-            document.getElementById('positionInfo').innerHTML = `
-                <strong>Position actuelle :</strong> ${latitude.toFixed(6)}, ${longitude.toFixed(6)}<br>
-                <strong>Précision GPS :</strong> ±${accuracy.toFixed(1)} m<br>
-                <strong>Rayon de détection :</strong> ${dynamicRadius.toFixed(1)} m<br>
-                ${getWaypointDistanceInfo(userPos)}
-            `;
-
-            // Mise à jour de l'info-bulle du waypoint avec le nouveau rayon
-            if (isTrainingStarted) {
-                displayWaypointInfo();
-            }
-
-            // Mise à jour du cercle sur la carte
-            if (isTrainingStarted && currentWaypointIndex < measuredWaypoints.length) {
-                updateDetectionCircle(dynamicRadius);
-            }
-
-            if (!userMarker) {
-                userMarker = L.marker([latitude, longitude], {
-                    icon: L.divIcon({
-                        className: 'user-marker',
-                        html: `<div style="background-color: green; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-weight: bold;">📍</div>`
-                    })
-                }).addTo(map);
-            } else {
-                userMarker.setLatLng([latitude, longitude]);
-            }
-
-            if (currentWaypointIndex < measuredWaypoints.length && isTrainingStarted) {
-                const waypoint = measuredWaypoints[currentWaypointIndex];
-                const distance = calculateDistance(latitude, longitude, waypoint.lat, waypoint.lon);
-
-                // Détection basée sur le rayon dynamique
-                if (distance <= dynamicRadius) {
-                    if (currentWaypointIndex === 0 && !isRaceStarted) {
-                        startTime = new Date().getTime();
-                        isRaceStarted = true;
-                        document.getElementById('status').textContent = "Départ détecté ! Chronomètre démarré.";
-                    } else if (isRaceStarted) {
-                        const currentTime = new Date().getTime();
-                        const elapsedTime = (currentTime - startTime) / 1000;
-                        const timeDiff = (elapsedTime - waypoint.timeOffset).toFixed(1);
-
-                        waypointHistory.unshift({
-                            name: waypoint.name,
-                            elapsedTime: elapsedTime,
-                            timeOffset: waypoint.timeOffset,
-                            timeDiff: parseFloat(timeDiff)
-                        });
-                        updateHistoryDisplay();
-
-                        document.getElementById('status').innerHTML = `
-                            <strong>Waypoint atteint : ${waypoint.name} !</strong><br>
-                            Temps écoulé : ${formatTime(elapsedTime)}<br>
-                            Temps de référence : ${formatTime(waypoint.timeOffset)}<br>
-                            Différence : <span class="time-diff ${
-                                timeDiff >= 0 ? 'behind' : 'ahead'
-                            }">${timeDiff >= 0 ? `+${timeDiff}s (retard)` : `${Math.abs(timeDiff)}s (avance)`}</span>
-                        `;
-                        currentWaypointIndex++;
-                        displayWaypointInfo();
-                    }
-                }
-            }
-            map.setView([latitude, longitude], 17);
-        }
-
-        function getWaypointDistanceInfo(userPos) {
-            if (currentWaypointIndex >= measuredWaypoints.length) {
-                return `<strong>Prochain waypoint :</strong> Aucun<br><strong>Distance restante :</strong> - m`;
-            }
-            const waypoint = measuredWaypoints[currentWaypointIndex];
-            const distance = calculateDistance(userPos.lat, userPos.lon, waypoint.lat, waypoint.lon);
-            return `
-                <strong>Prochain waypoint :</strong> ${waypoint.name} (${waypoint.lat.toFixed(6)}, ${waypoint.lon.toFixed(6)})<br>
-                <strong>Distance restante :</strong> ${distance.toFixed(1)} m
-            `;
-        }
-
-        function updateHistoryDisplay() {
-            const historyElement = document.getElementById('history');
-            if (waypointHistory.length === 0) {
-                historyElement.innerHTML = `
-                    <h3>Historique des waypoints</h3>
-                    <p>Aucun waypoint atteint pour l'instant.</p>
-                `;
-                return;
-            }
-
-            const filteredHistory = waypointHistory.filter((_, index) =>
-                index < waypointHistory.length
-            );
-
-            let tableRows = filteredHistory.map((entry, index) => {
-                const displayIndex = filteredHistory.length - index;
-                const diffClass = entry.timeDiff >= 0 ? 'behind' : 'ahead';
-                const diffText = entry.timeDiff >= 0
-                    ? `+${entry.timeDiff.toFixed(1)}s`
-                    : `${Math.abs(entry.timeDiff).toFixed(1)}s`;
-                return `
-                    <tr>
-                        <td>${displayIndex}</td>
-                        <td>${entry.name}</td>
-                        <td>${formatTime(entry.elapsedTime)}</td>
-                        <td>${formatTime(entry.timeOffset)}</td>
-                        <td class="time-diff ${diffClass}">${diffText}</td>
-                    </tr>
-                `;
-            }).join('');
-
-            historyElement.innerHTML = `
-                <h3>Historique des waypoints</h3>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Nom</th>
-                            <th>Temps réel</th>
-                            <th>Temps référence</th>
-                            <th>Écart</th>
-                        </tr>
-                    </thead>
-                    <tbody>${tableRows}</tbody>
-                </table>
-            `;
-        }
-
-        function handleGeolocationError(error) {
-            let message;
-            switch(error.code) {
-                case error.PERMISSION_DENIED: message = "Accès GPS refusé. Vérifie les permissions."; break;
-                case error.POSITION_UNAVAILABLE: message = "Position indisponible."; break;
-                case error.TIMEOUT: message = "Délai GPS expiré."; break;
-                default: message = "Erreur GPS inconnue.";
-            }
-            document.getElementById('status').textContent = message;
-            document.getElementById('positionInfo').innerHTML = `
-                <strong>Position actuelle :</strong> Indisponible<br>
-                <strong>Erreur :</strong> ${message}
-            `;
-        }
-
-        function calculateDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371e3;
-            const φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180;
-            const Δφ = (lat2 - lat1) * Math.PI / 180, Δλ = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
-            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        }
-
-        window.onload = function() {
-            initMap();
-        };
-    </script>
+    <!-- Scripts : Leaflet d'abord, puis notre logique -->
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
